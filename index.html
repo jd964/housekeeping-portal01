@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, orientation=landscape">
+<title>Tombstone Grand Hotel – Housekeeping Portal v2</title>
+<style>
+body{font-family:Segoe UI,Arial,sans-serif;margin:0;padding:0;background:#fff;color:#222}
+header{background:#0057a4;color:#fff;padding:12px 20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap}
+h1{font-size:20px;margin:0}
+#controls{margin-top:6px}
+button,select,input[type=file]{margin:4px;padding:6px 10px;font-size:15px;border-radius:5px;border:1px solid #ccc}
+button{background:#f2a900;border:none;color:#111;cursor:pointer}
+table{width:100%;border-collapse:collapse;margin-top:10px}
+th,td{border:1px solid #ddd;padding:6px;text-align:center;font-size:15px}
+th{background:#f3f4f6}
+tr:nth-child(even){background:#fafafa}
+.status-dirty{background:#e5e7eb}
+.status-progress{background:#fde047}
+.status-clean{background:#bbf7d0}
+.status-inspected{background:#93c5fd;color:#fff}
+footer{text-align:center;color:#888;font-size:13px;padding:10px}
+@media screen and (orientation:portrait){
+  body::before{content:"Please rotate your device for best view.";display:flex;align-items:center;justify-content:center;height:100vh;font-size:1.5rem;color:#333;text-align:center}
+  header,main,footer{display:none}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Tombstone Grand Hotel – Housekeeping Portal</h1>
+  <div id="datetime"></div>
+  <div id="controls">
+    <button onclick="showStaffPopup()">Select Staff</button>
+    <input type="file" id="fileInput" accept=".csv,.json">
+    <button onclick="autoAssign()">Auto-Assign</button>
+    <button onclick="resetAll()">Reset All</button>
+  </div>
+</header>
+
+<main>
+  <table id="roomTable">
+    <thead>
+      <tr><th>Room</th><th>Type</th><th>Guest Status</th><th>Attendant</th><th>HK Status</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</main>
+
+<footer>Auto-reset daily at 6 AM • Tombstone Grand Hotel</footer>
+
+<!-- staff popup -->
+<div id="staffPopup" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10;align-items:center;justify-content:center">
+  <div style="background:white;padding:20px;border-radius:10px;max-width:300px;text-align:left">
+    <h3>Select attendants working today</h3>
+    <label><input type="checkbox" value="Hilda"> Hilda</label><br>
+    <label><input type="checkbox" value="Jonnah"> Jonnah</label><br>
+    <label><input type="checkbox" value="Mayte"> Mayte</label><br>
+    <label><input type="checkbox" value="Kennedy"> Kennedy</label><br>
+    <label><input type="checkbox" value="Angie"> Angie</label><br>
+    <label><input type="checkbox" value="Elvia"> Elvia</label><br>
+    <button onclick="saveStaff()">Start</button>
+  </div>
+</div>
+
+<script>
+const attendants=["Hilda","Jonnah","Mayte","Kennedy","Angie","Elvia"];
+let activeStaff=[...attendants];
+let rooms=[];
+const tableBody=document.querySelector("#roomTable tbody");
+const fileInput=document.getElementById("fileInput");
+
+function updateClock(){
+  const d=new Date();
+  document.getElementById("datetime").textContent=d.toLocaleString();
+}
+setInterval(updateClock,1000);updateClock();
+
+function showStaffPopup(){document.getElementById("staffPopup").style.display="flex";}
+function saveStaff(){
+  activeStaff=[...document.querySelectorAll("#staffPopup input:checked")].map(cb=>cb.value);
+  if(activeStaff.length===0){alert("Select at least one attendant.");return;}
+  document.getElementById("staffPopup").style.display="none";
+  alert("Active attendants: "+activeStaff.join(", "));
+}
+
+fileInput.addEventListener("change",e=>{
+  const file=e.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=()=>{const text=reader.result;
+    if(file.name.endsWith(".csv"))parseCSV(text);else parseJSON(text);
+    renderTable();saveData();
+  };
+  reader.readAsText(file);
+});
+
+function parseCSV(text){
+  const lines=text.trim().split(/\r?\n/);
+  const headers=lines.shift().split(",");
+  rooms=lines.map(line=>{
+    const parts=line.split(",");
+    return {Room:parts[0],Type:parts[1],GuestStatus:parts[2],Attendant:parts[3],HKStatus:parts[4]};
+  });
+}
+function parseJSON(text){rooms=JSON.parse(text);}
+
+function renderTable(){
+  tableBody.innerHTML="";
+  rooms.forEach((r,i)=>{
+    const tr=document.createElement("tr");
+    tr.innerHTML=`
+      <td>${r.Room}</td>
+      <td>${r.Type||""}</td>
+      <td><select onchange="updateField(${i},'GuestStatus',this.value)">
+          ${["Stayover","Departure","Vacant"].map(s=>`<option ${r.GuestStatus===s?"selected":""}>${s}</option>`).join("")}
+          </select></td>
+      <td><select onchange="updateField(${i},'Attendant',this.value)">
+          ${activeStaff.map(a=>`<option ${r.Attendant===a?"selected":""}>${a}</option>`).join("")}
+          </select></td>
+      <td><button class="status-${r.HKStatus?.toLowerCase().replace(' ','-')||'dirty'}" onclick="cycleStatus(${i})">${r.HKStatus||'Dirty'}</button></td>
+    `;
+    tableBody.appendChild(tr);
+  });
+}
+
+function updateField(index,key,val){rooms[index][key]=val;saveData();}
+function cycleStatus(i){
+  const order=["Dirty","In Progress","Clean","Inspected"];
+  const current=rooms[i].HKStatus||"Dirty";
+  const next=order[(order.indexOf(current)+1)%order.length];
+  rooms[i].HKStatus=next;saveData();renderTable();
+}
+
+function autoAssign(){
+  if(activeStaff.length===0){alert("Select staff first.");return;}
+  const per=Math.ceil(rooms.length/activeStaff.length);
+  rooms.forEach((r,i)=>r.Attendant=activeStaff[Math.floor(i/per)]);
+  saveData();renderTable();
+}
+function resetAll(){
+  if(!confirm("Reset all rooms to Dirty?"))return;
+  rooms.forEach(r=>r.HKStatus="Dirty");
+  saveData();renderTable();
+}
+function saveData(){localStorage.setItem("hkRooms",JSON.stringify(rooms));}
+function loadData(){
+  const saved=localStorage.getItem("hkRooms");
+  if(saved){rooms=JSON.parse(saved);renderTable();}
+  else loadSample();
+}
+function loadSample(){
+  rooms=[
+    {Room:"101",Type:"RM3",GuestStatus:"Stayover",Attendant:"Hilda",HKStatus:"Dirty"},
+    {Room:"102",Type:"RM2",GuestStatus:"Departure",Attendant:"Kennedy",HKStatus:"In Progress"},
+    {Room:"103",Type:"RM2",GuestStatus:"Vacant",Attendant:"Angie",HKStatus:"Clean"},
+    {Room:"104",Type:"RM2",GuestStatus:"Stayover",Attendant:"Elvia",HKStatus:"Dirty"},
+    {Room:"201",Type:"RM3",GuestStatus:"Stayover",Attendant:"Jonnah",HKStatus:"Inspected"},
+    {Room:"202",Type:"RM2",GuestStatus:"Vacant",Attendant:"Mayte",HKStatus:"Dirty"}
+  ];
+  renderTable();
+}
+
+// auto reset 6 AM
+function scheduleReset(){
+  const now=new Date(),next=new Date();
+  next.setHours(6,0,0,0);
+  if(next<=now)next.setDate(next.getDate()+1);
+  const delay=next-now;
+  setTimeout(()=>{rooms.forEach(r=>r.HKStatus="Dirty");saveData();renderTable();scheduleReset();alert("Auto-reset complete.");},delay);
+}
+loadData();scheduleReset();
+</script>
+</body>
+</html>
