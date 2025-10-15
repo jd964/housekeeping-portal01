@@ -1,138 +1,43 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,orientation=landscape">
-<title>Tombstone Grand Hotel – Housekeeping Portal (Live Sync)</title>
-<style>
-body{font-family:Segoe UI,Arial,sans-serif;margin:0;padding:0;background:#fff;color:#222}
-header{background:#0057a4;color:#fff;padding:12px 20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap}
-h1{font-size:20px;margin:0}
-#datetime{font-size:14px}
-button,select{margin:4px;padding:6px 10px;font-size:15px;border-radius:5px;border:1px solid #ccc}
-button{background:#f2a900;border:none;color:#111;cursor:pointer}
-table{width:100%;border-collapse:collapse;margin-top:10px}
-th,td{border:1px solid #ddd;padding:6px;text-align:center;font-size:15px}
-th{background:#f3f4f6}
-tr:nth-child(even){background:#fafafa}
-.status-dirty{background:#e5e7eb}
-.status-progress{background:#fde047}
-.status-clean{background:#bbf7d0}
-.status-inspected{background:#93c5fd;color:#fff}
-footer{text-align:center;color:#888;font-size:13px;padding:10px}
-@media screen and (orientation:portrait){
-body::before{content:"Please rotate your device to landscape.";display:flex;align-items:center;justify-content:center;height:100vh;font-size:1.5rem;color:#333;text-align:center}
-header,main,footer{display:none}
-}
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, orientation=landscape">
+  <title>Tombstone Grand Hotel – Housekeeping Portal</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header>
-  <h1>Tombstone Grand Hotel – Housekeeping Portal</h1>
-  <div id="datetime"></div>
-</header>
+  <header>
+    <h1>Tombstone Grand Hotel – Housekeeping Portal</h1>
+    <div id="date"></div>
+    <div>
+      <select id="filterSelect">
+        <option value="all">All Attendants</option>
+        <option value="Hilda">Hilda</option>
+        <option value="Jonnah">Jonnah</option>
+        <option value="Mayte">Mayte</option>
+        <option value="Kennedy">Kennedy</option>
+        <option value="Angie">Angie</option>
+        <option value="Elvia">Elvia</option>
+      </select>
+      <button id="resetBtn">Reset All</button>
+    </div>
+  </header>
 
-<main>
-  <table id="roomTable">
-    <thead>
-      <tr><th>Room</th><th>Type</th><th>Guest Status</th><th>Attendant</th><th>HK Status</th></tr>
-    </thead>
-    <tbody></tbody>
-  </table>
-</main>
+  <main id="roomGrid"></main>
 
-<footer>Live sync every 20s • Batch upload every 3 min • Tombstone Grand Hotel</footer>
+  <div id="checklistModal" class="modal">
+    <div class="modal-content">
+      <h2 id="modalRoom"></h2>
+      <label><input type="checkbox"> Replace linens</label>
+      <label><input type="checkbox"> Clean bathroom</label>
+      <label><input type="checkbox"> Vacuum floor</label>
+      <label><input type="checkbox"> Restock supplies</label>
+      <label><input type="checkbox"> Inspect for lost items</label>
+      <button id="closeModal">Close</button>
+    </div>
+  </div>
 
-<script>
-const API_URL="https://script.google.com/macros/s/AKfycbzbqSszSn6HpA4pZSMxYqDxc6hUgJdTtDurXAQKMUkwMRrf1Klz74alXTEWXL5ZiUNP/exec";
-const tableBody=document.querySelector("#roomTable tbody");
-const attendant=(new URLSearchParams(window.location.search)).get("attendant")||"Manager";
-let rooms=[],updateQueue=[];
-
-function updateClock(){
-  const d=new Date();
-  document.getElementById("datetime").textContent=d.toLocaleString();
-}
-setInterval(updateClock,1000);updateClock();
-
-// Fetch data from Google Sheet
-async function fetchData(){
-  try{
-    const res=await fetch(API_URL);
-    const data=await res.json();
-    rooms=data;
-    renderTable();
-  }catch(err){console.error("Fetch error",err);}
-}
-
-// Render table view
-function renderTable(){
-  tableBody.innerHTML="";
-  const filtered=attendant.toLowerCase()==="manager"?rooms:rooms.filter(r=>r.Attendant===attendant);
-  filtered.forEach((r,i)=>{
-    const tr=document.createElement("tr");
-    tr.innerHTML=`
-      <td>${r.Room}</td>
-      <td>${r.Type||""}</td>
-      <td>${attendant==="Manager"?`<select onchange="queueUpdate('${r.Room}','GuestStatus',this.value)">
-          ${["Stayover","Departure","Vacant"].map(s=>`<option ${r.GuestStatus===s?"selected":""}>${s}</option>`).join("")}
-          </select>`:r.GuestStatus}</td>
-      <td>${attendant==="Manager"?`<input value="${r.Attendant||""}" onchange="queueUpdate('${r.Room}','Attendant',this.value)">`:(r.Attendant||"")}</td>
-      <td><button class="status-${(r.HKStatus||'Dirty').toLowerCase().replace(' ','-')}" onclick="cycleStatus('${r.Room}')">${r.HKStatus||'Dirty'}</button></td>
-    `;
-    tableBody.appendChild(tr);
-  });
-}
-
-// Cycle housekeeping status
-function cycleStatus(room){
-  const order=["Dirty","In Progress","Clean","Inspected"];
-  const idx=rooms.findIndex(r=>r.Room==room);
-  if(idx===-1)return;
-  const current=rooms[idx].HKStatus||"Dirty";
-  const next=order[(order.indexOf(current)+1)%order.length];
-  rooms[idx].HKStatus=next;
-  queueUpdate(room,"HKStatus",next);
-  renderTable();
-}
-
-// Queue update
-function queueUpdate(room,field,value){
-  updateQueue.push({Room:room,field,value});
-  localStorage.setItem("hkQueue",JSON.stringify(updateQueue));
-}
-
-// Batch send queued updates
-async function sendBatch(){
-  if(updateQueue.length===0)return;
-  const queueCopy=[...updateQueue];
-  updateQueue=[];
-  localStorage.setItem("hkQueue","[]");
-  for(const item of queueCopy){
-    try{
-      await fetch(API_URL,{
-        method:"POST",
-        body:JSON.stringify(item),
-        headers:{"Content-Type":"application/json"}
-      });
-    }catch(err){
-      console.error("Batch update failed",err);
-      updateQueue.push(item);
-    }
-  }
-}
-
-// Load any saved queue
-function loadQueue(){
-  const saved=localStorage.getItem("hkQueue");
-  if(saved)updateQueue=JSON.parse(saved);
-}
-
-// Schedule background jobs
-loadQueue();
-fetchData();
-setInterval(fetchData,20000); // refresh every 20s
-setInterval(sendBatch,180000); // send every 3 min
-</script>
+  <script src="script.js"></script>
 </body>
 </html>
